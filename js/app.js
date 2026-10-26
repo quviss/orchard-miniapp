@@ -141,11 +141,11 @@ const VIEWS = {
       const p = PRODUCTS.find(x => x.cat === c.id);
       return `<button class="cat" data-act="cat" data-id="${c.id}"><div class="ic">${thumb(p, 0)}</div>${esc(c.name)}</button>`;
     }).join('');
-    const news = PRODUCTS.filter(p => p.isNew).map(card).join('');
-    const hits = PRODUCTS.filter(p => p.hit).map(card).join('');
+    const news = PRODUCTS.filter(p => p.isNew).slice(0, 4).map(card).join('');
+    const hits = PRODUCTS.filter(p => p.hit).slice(0, 6).map(card).join('');
     const rows = CATEGORIES.map(c => `
       <div class="section-h"><h3>${esc(c.name)}</h3><button data-act="cat" data-id="${c.id}">Все</button></div>
-      <div class="hscroll">${PRODUCTS.filter(p => p.cat === c.id).map(card).join('')}</div>`).join('');
+      <div class="grid">${PRODUCTS.filter(p => p.cat === c.id).slice(0, 4).map(card).join('')}</div>`).join('');
 
     return `
       <header class="home-head">
@@ -156,7 +156,7 @@ const VIEWS = {
       <div class="dots" id="hero-dots">${HERO.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>
       <div class="cats">${cats}</div>
       <div class="section-h"><h3>Новинки</h3></div>
-      <div class="hscroll">${news}</div>
+      <div class="grid">${news}</div>
       <div class="section-h"><h3>Почему мы</h3></div>
       <div class="perks">
         <button class="perk" data-act="faq" data-i="1">${I.shield}<b>Гарантия 1 год</b><span>Только оригинал</span></button>
@@ -376,7 +376,7 @@ function renderBottom(r) {
   const inCart = S.cart.some(i => i.pid === p.id && i.ci === r.ci && i.oi === r.oi && i.si === r.si);
   const variant = [p.colors.length > 1 ? p.colors[r.ci].n : '', p.opt.items[r.oi].t].filter(Boolean).join(' · ');
   el.innerHTML = `<div class="buybar"><div class="sum"><small>${esc(variant)}</small><b>${rub(price)}</b></div>
-    ${inCart ? `<button class="btn done" data-act="tab" data-id="cart">В корзине ✓</button>` : `<button class="btn" data-act="add">${p.colors[r.ci].q ? 'В корзину' : 'Заказать'}</button>`}</div>`;
+    ${inCart ? `<button class="btn in-cart" data-act="tab" data-id="cart">${I.check}В корзине</button>` : `<button class="btn" data-act="add">${p.colors[r.ci].q ? 'В корзину' : 'Заказать'}</button>`}</div>`;
 }
 
 function renderTabbar(r) {
