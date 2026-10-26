@@ -3,7 +3,7 @@
 
 const PHOTOS = (() => {
   const apple = n => `https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/${n}?wid=640&hei=640&fmt=jpeg&qlt=85`;
-  const samsung = p => `https://images.samsung.com/is/image/samsung/p6pim/us/${p}?$650_519_PNG$`;
+  const samsung = p => `https://images.samsung.com/is/image/samsung/p6pim/us/${p}?$684_547_JPG$`;
   const ps = n => `https://gmedia.playstation.com/is/image/SIEPDC/${n}`;
 
   // основной вид + крупный план камер

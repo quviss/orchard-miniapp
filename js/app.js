@@ -37,6 +37,8 @@ const I = {
   card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>',
   swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>',
   pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   tg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 4.3 18.4 19c-.2 1-.9 1.3-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.8 8.7-7.9c.4-.3-.1-.5-.6-.2L6.4 12.9l-4.6-1.4c-1-.3-1-1 .2-1.5L20.2 3c.8-.3 1.6.2 1.3 1.3z"/></svg>',
 };
@@ -52,7 +54,7 @@ function stockInfo(q) {
 }
 function imgs(p, ci) {
   const col = p.colors[ci];
-  if (col.img) return [].concat(col.img).map(src => `<img src="${src}" alt="${esc(p.name)}" loading="lazy">`);
+  if (col.img) return [].concat(col.img).map(src => `<img src="${src}" alt="${esc(p.name)}"${src.includes('_AV2') ? ' class="cover"' : ''} loading="lazy">`);
   if (p.img) return [].concat(p.img).map(src => `<img src="${src}" alt="${esc(p.name)}" loading="lazy">`);
   const n = Art.views(p.art);
   return Array.from({ length: n }, (_, v) => Art.render(p.art, col.c, v));
@@ -185,7 +187,7 @@ const VIEWS = {
       <p class="page-sub">${list.length} ${plural(list.length, 'модель', 'модели', 'моделей')}</p>
       <div class="chips">
         ${chip('f', 'all', 'Все')}${chip('f', 'stock', 'В наличии')}${chip('f', 'sale', 'Со скидкой')}
-        ${chip('s', 'pop', 'Популярные')}${chip('s', 'asc', 'Дешевле')}${chip('s', 'desc', 'Дороже')}
+        ${chip('s', 'pop', 'Популярные')}<button class="chip arrow ${r.s !== 'pop' ? 'on' : ''}" data-act="price-sort">Цена${r.s === 'desc' ? I.down : I.up}</button>
       </div>
       <div class="grid">${list.map(card).join('') || '<p class="hint">Ничего не нашлось</p>'}</div>`;
   },
@@ -317,10 +319,6 @@ const VIEWS = {
         <button class="round-btn" data-act="manager" aria-label="Написать менеджеру" style="color:var(--accent)">${I.tg}</button>
       </div>
       <div class="msgs" id="msgs">${S.chat.map(msgHtml).join('')}</div>
-      </div>
-      <div class="composer">
-        <div class="chips">${FAQ.map((f, i) => `<button class="chip" data-act="faq" data-i="${i}">${f.q}</button>`).join('')}</div>
-        <form id="composer"><input id="msg" placeholder="Сообщение" autocomplete="off"><button type="submit" aria-label="Отправить">${I.send}</button></form>
       </div>`;
   },
 };
@@ -370,6 +368,13 @@ function render(animate) {
 
 function renderBottom(r) {
   const el = $('#bottom');
+  if (r.v === 'support') {
+    el.innerHTML = `<div class="composer">
+        <div class="chips">${FAQ.map((f, i) => `<button class="chip" data-act="faq" data-i="${i}">${f.q}</button>`).join('')}</div>
+        <form id="composer"><input id="msg" placeholder="Сообщение" autocomplete="off"><button type="submit" aria-label="Отправить">${I.send}</button></form>
+      </div>`;
+    return;
+  }
   if (r.v !== 'product') { el.innerHTML = ''; return; }
   const p = byId(r.id);
   const price = priceOf(p, r.oi, r.si);
@@ -518,6 +523,7 @@ document.addEventListener('click', e => {
     case 'tab': haptic.select(); switchTab(el.dataset.id); break;
     case 'back': back(); break;
     case 'filter': haptic.select(); r[el.dataset.k] = el.dataset.v; rerender(); break;
+    case 'price-sort': haptic.select(); r.s = r.s === 'asc' ? 'desc' : 'asc'; rerender(); break;
     case 'color': haptic.select(); r.ci = +el.dataset.i; rerender(); break;
     case 'opt': haptic.select(); r.oi = +el.dataset.i; rerender(); break;
     case 'sim': haptic.select(); r.si = +el.dataset.i; rerender(); break;
