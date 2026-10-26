@@ -6,9 +6,10 @@ const PHOTOS = (() => {
   const samsung = p => `https://images.samsung.com/is/image/samsung/p6pim/us/${p}?$684_547_JPG$`;
   const ps = n => `https://gmedia.playstation.com/is/image/SIEPDC/${n}`;
 
-  // основной вид + крупный план камер
+  // основной вид + крупный план камер. У крупных планов Apple фон серый и вшит в фото,
+  // поэтому берём свои копии с белым фоном из img/closeup.
   const iphone = (model, date, colors) => colors.map(c => [
-    apple(`${model}-finish-select-${c}-${date}`), apple(`${model}-finish-select-${c}-${date}_AV2`),
+    apple(`${model}-finish-select-${c}-${date}`), `img/closeup/${model}-finish-select-${c}-${date}_AV2.jpg`,
   ]);
   const s26 = (code, id) => [samsung(`s2602/gallery/us-galaxy-s26-ultra-s948-sm-s948u${code}-${id}`), samsung(`s2602/gallery/us-galaxy-s26-ultra-s948-sm-s948u${code}-${id + 1}`)];
   const fold = (path, id) => [samsung(`f2607/gallery/${path}-${id}`), samsung(`f2607/gallery/${path}-${id + 1}`)];
