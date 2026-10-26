@@ -324,3 +324,4 @@ svg { display: block; }
 .btn.block { display: flex; }
 .btn svg { width: 18px; height: 18px; flex: 0 0 auto; }
 :root[data-theme="dark"] .seg3 button.on { background: #3a3a3c; }
+:root:not([data-theme="dark"]) .badge:not(.sale) { background: #f0f0f2; }
