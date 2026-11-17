@@ -1,7 +1,18 @@
 // Мини-приложение магазина: навигация, экраны, корзина, чат поддержки.
 
-const tg = window.Telegram && window.Telegram.WebApp;
-const inTG = !!(tg && tg.initData);
+const tg = TelegramBridge.sdk;
+const inTG = TelegramBridge.active;
+const DEFAULT_PRODUCTS = JSON.parse(JSON.stringify(PRODUCTS));
+let catalogError = null;
+function loadCatalog() {
+  let result;
+  try { result = Catalog.read(localStorage, DEFAULT_PRODUCTS, CATEGORIES); }
+  catch (e) { result = {products: DEFAULT_PRODUCTS, error: e.message}; }
+  PRODUCTS.splice(0, PRODUCTS.length, ...result.products);
+  catalogError = result.error;
+}
+loadCatalog();
+const visibleProducts = () => PRODUCTS.filter(p => !p.hidden);
 
 // ───── утилиты ─────
 const $ = sel => document.querySelector(sel);
@@ -11,10 +22,10 @@ const byId = id => PRODUCTS.find(p => p.id === id);
 const catById = id => CATEGORIES.find(c => c.id === id);
 
 const haptic = {
-  tap() { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred('light'); },
-  select() { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); },
-  ok() { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); },
-  err() { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('error'); },
+  tap() { TelegramBridge.call(inTG && tg.HapticFeedback, 'impactOccurred', 'light'); },
+  select() { TelegramBridge.call(inTG && tg.HapticFeedback, 'selectionChanged'); },
+  ok() { TelegramBridge.call(inTG && tg.HapticFeedback, 'notificationOccurred', 'success'); },
+  err() { TelegramBridge.call(inTG && tg.HapticFeedback, 'notificationOccurred', 'error'); },
 };
 
 const store = {
@@ -23,6 +34,9 @@ const store = {
 };
 
 const I = {
+  heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg>',
+  compare: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20V7M2 20h20"/></svg>',
+  leaf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M19 3C8 2 2 8 5 15s15 5 14-12Z"/><path d="m4 21 11-12"/></svg>',
   store: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
   bag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1 12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
@@ -54,18 +68,26 @@ function stockInfo(q) {
 }
 function imgs(p, ci) {
   const col = p.colors[ci];
-  if (col.img) return [].concat(col.img).map(src => `<img src="${src}" alt="${esc(p.name)}"${src.includes('_AV2') ? ' class="cover"' : ''} loading="lazy">`);
-  if (p.img) return [].concat(p.img).map(src => `<img src="${src}" alt="${esc(p.name)}" loading="lazy">`);
+  if (col.img) return [].concat(col.img).map(src => `<img src="${esc(src)}" data-fallback="${p.id}" data-ci="${ci}" alt="${esc(p.name)}"${src.includes('_AV2') ? ' class="cover"' : ''} loading="lazy">`);
+  if (p.img) return [].concat(p.img).map(src => `<img src="${esc(src)}" data-fallback="${p.id}" data-ci="${ci}" alt="${esc(p.name)}" loading="lazy">`);
   const n = Art.views(p.art);
   return Array.from({ length: n }, (_, v) => Art.render(p.art, col.c, v));
 }
 const thumb = (p, ci = 0) => imgs(p, ci)[0];
 
 // ───── состояние ─────
+function readIds(key) {
+  const ids = store.get(key, []);
+  return Array.isArray(ids) ? [...new Set(ids)].filter(id => visibleProducts().some(p => p.id === id)) : [];
+}
 const S = {
   stack: [{ v: 'home' }],
   tab: 'home',
-  cart: store.get('cart', []),
+  cart: Catalog.cleanCart(store.get('cart', []), PRODUCTS),
+  favorites: readIds('orchard.favorites'),
+  recent: readIds('orchard.recent'),
+  compare: Catalog.cleanCompare(readIds('orchard.compare'), PRODUCTS),
+  filters: {},
   form: store.get('form', { name: '', phone: '', delivery: 0, address: '', pay: 0, comment: '' }),
   chat: [],
   q: '',
@@ -79,6 +101,7 @@ const cur = () => S.stack[S.stack.length - 1];
 function push(route) {
   cur().y = window.scrollY;
   S.stack.push(route);
+  if (route.v === 'product') { S.recent = [route.id, ...S.recent.filter(id => id !== route.id)].slice(0, 8); store.set('orchard.recent', S.recent); }
   render(true);
   window.scrollTo(0, 0);
 }
@@ -106,19 +129,22 @@ function topbar(title) {
   return `<div class="topbar"><button class="backbtn" data-act="back">${I.back}Назад</button><div class="title">${esc(title)}</div><div class="spacer"></div></div>`;
 }
 
-function card(p) {
-  const base = p.opt.items[0].p;
+function card(p, filters = {}) {
+  if (!filters || typeof filters !== 'object') filters = {};
+  const offer = Catalog.offers(p, filters).sort((a,b) => a.price-b.price)[0] || {price:p.opt.items[0].p,oi:0,si:0};
+  const base = offer.price;
   const st = inStock(p) ? '<div class="st ok">В наличии</div>' : '<div class="st warn">Под заказ</div>';
   const badge = p.old ? `<span class="badge sale">−${Math.round(p.old * 100)}%</span>` : p.isNew ? '<span class="badge">Новинка</span>' : '';
   const sw = p.colors.length > 1 ? p.colors.slice(0, 6).map(c => `<i style="background:${c.c}"></i>`).join('') : '';
-  return `<button class="pcard" data-act="open" data-id="${p.id}">
-    ${badge}
-    <div class="img">${thumb(p, firstAvailable(p))}</div>
-    <div class="sw">${sw}</div>
-    <div class="nm">${esc(p.name)}</div>
-    <div class="pr">от ${rub(base)}${p.old ? `<s>${rub(oldPrice(base, p.old))}</s>` : ''}</div>
-    ${st}
-  </button>`;
+  return `<article class="pcard">
+    <button class="product-link" data-act="open" data-id="${p.id}" data-oi="${offer.oi}" data-si="${offer.si}" aria-label="Открыть ${esc(p.name)}">
+      ${badge}<div class="img">${thumb(p, firstAvailable(p))}</div><div class="sw">${sw}</div>
+      <div class="nm">${esc(p.name)}</div><div class="card-sub">${esc(p.sub)}</div>
+      <div class="pr">от ${rub(base)}</div>${p.old ? `<s class="old-price">${rub(oldPrice(base, p.old))}</s>` : ''}${st}
+    </button>
+    <button class="favorite-btn ${S.favorites.includes(p.id) ? 'selected' : ''}" data-act="favorite" data-id="${p.id}" aria-label="${S.favorites.includes(p.id) ? 'Убрать из избранного' : 'В избранное'}: ${esc(p.name)}" aria-pressed="${S.favorites.includes(p.id)}">${I.heart}</button>
+    <button class="compare-btn ${S.compare.includes(p.id) ? 'selected' : ''}" data-act="compare-toggle" data-id="${p.id}" aria-pressed="${S.compare.includes(p.id)}">${I.compare}${S.compare.includes(p.id) ? 'В сравнении' : 'Сравнить'}</button>
+  </article>`;
 }
 const firstAvailable = p => Math.max(0, p.colors.findIndex(c => c.q > 0));
 
@@ -131,70 +157,39 @@ const HERO = [
 
 const VIEWS = {
   home() {
-    const hero = HERO.map(h => {
-      const p = byId(h.id);
-      return `<div class="slide ${h.cls}" data-act="open" data-id="${p.id}" data-ci="${h.color}">
-        <div class="kicker">${h.kicker}</div><h2>${h.title}</h2><p>${h.text}</p>
-        <div class="cta"><span class="pill-btn">Купить</span><span class="pill-btn light">от ${rub(p.opt.items[0].p)}</span></div>
-        <div class="art">${thumb(p, h.color)}</div>
-      </div>`;
-    }).join('');
+    const featured = visibleProducts().find(p => p.id === 'iphone-18-pro') || visibleProducts()[0];
     const cats = CATEGORIES.map(c => {
-      const p = PRODUCTS.find(x => x.cat === c.id);
-      return `<button class="cat" data-act="cat" data-id="${c.id}"><div class="ic">${thumb(p, 0)}</div>${esc(c.name)}</button>`;
+      const p = visibleProducts().find(x => x.cat === c.id);
+      return `<button class="cat" data-act="cat" data-id="${c.id}"><div class="ic">${p ? thumb(p,0) : Art.render(c.art, c.art.c, 0)}</div>${esc(c.name)}</button>`;
     }).join('');
-    const news = PRODUCTS.filter(p => p.isNew).slice(0, 4).map(card).join('');
-    const hits = PRODUCTS.filter(p => p.hit).slice(0, 6).map(card).join('');
-    const rows = CATEGORIES.map(c => `
-      <div class="section-h"><h3>${esc(c.name)}</h3><button data-act="cat" data-id="${c.id}">Все</button></div>
-      <div class="grid">${PRODUCTS.filter(p => p.cat === c.id).slice(0, 4).map(card).join('')}</div>`).join('');
-
-    return `
-      <header class="home-head">
-        <div><div class="eyebrow">${esc(CONFIG.tagline)}</div><h1>${esc(CONFIG.storeName)}</h1></div>
-        <button class="round-btn" data-act="tab" data-id="search" aria-label="Поиск">${I.search}</button>
-      </header>
-      <div class="hero" id="hero">${hero}</div>
-      <div class="dots" id="hero-dots">${HERO.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>
-      <div class="cats">${cats}</div>
-      <div class="section-h"><h3>Новинки</h3></div>
-      <div class="grid">${news}</div>
-      <div class="section-h"><h3>Почему мы</h3></div>
-      <div class="perks">
-        <button class="perk" data-act="faq" data-i="1">${I.shield}<b>Гарантия 1 год</b><span>Только оригинал</span></button>
-        <button class="perk" data-act="faq" data-i="0">${I.truck}<b>Доставка за 2 часа</b><span>По Москве</span></button>
-        <button class="perk" data-act="faq" data-i="3">${I.card}<b>Рассрочка 0%</b><span>На 6–12 месяцев</span></button>
-        <button class="perk" data-act="faq" data-i="2">${I.swap}<b>Trade-in</b><span>Сдайте старое</span></button>
-      </div>
-      <div class="section-h"><h3>Хиты продаж</h3></div>
-      <div class="grid">${hits}</div>
-      ${rows}
-      <div class="foot">${esc(CONFIG.storeName)} · ${esc(CONFIG.address)}<br>${esc(CONFIG.hours)}</div>`;
+    const picks = visibleProducts().filter(p => p.hit).slice(0,4);
+    const news = visibleProducts().filter(p => p.isNew && !picks.includes(p)).slice(0,4);
+    return `<header class="home-head">
+      <div class="brand-lockup"><div class="brand-mark">${I.leaf}</div><div><h1>${esc(CONFIG.storeName)}</h1><div class="brand-caption">Техника для вашего ритма</div></div></div>
+      <span class="demo-tag">Демо</span></header>
+      <button class="home-search" data-act="tab" data-id="search">${I.search}<span>Какую технику ищем?</span><span class="search-hint">Найти</span></button>
+      ${catalogError ? '<p class="hint storage-warning">Сохранённый каталог не прочитан. Показана исходная версия.</p>' : ''}
+      ${featured ? `<section class="feature-card"><div class="feature-copy"><span class="eyebrow">В центре внимания</span><h2>${esc(featured.name)}</h2><p>${esc(featured.sub)}</p><button class="feature-cta" data-act="open" data-id="${featured.id}">Смотреть модель ${I.chev}</button><span class="feature-price">от ${rub(featured.opt.items[0].p)}</span></div><div class="feature-art">${thumb(featured,Math.min(3,featured.colors.length-1))}</div><span class="feature-index">ORCHARD / SELECTED</span></section>` : '<div class="empty"><h2>Новая коллекция скоро</h2><p>Добавьте товары в управление каталогом.</p></div>'}
+      <div class="section-h"><h3>Что вам интересно?</h3><span class="section-note">${visibleProducts().length} моделей</span></div><div class="cats">${cats}</div>
+      <div class="discovery-banner"><div>${I.compare}<b>Найдите свою модель</b><p>Сравните характеристики и выберите то, что подходит вам.</p></div><button data-act="tab" data-id="search">Подобрать ${I.chev}</button></div>
+      ${picks.length ? `<div class="section-h"><div><span class="eyebrow">Выбор Orchard</span><h3>Стоит присмотреться</h3></div><button data-act="tab" data-id="search">Весь каталог ${I.chev}</button></div><div class="grid">${picks.map(p=>card(p)).join('')}</div>` : ''}
+      ${news.length ? `<div class="section-h"><h3>Новые открытия</h3></div><div class="hscroll">${news.map(p=>card(p)).join('')}</div>` : ''}
+      ${S.recent.length ? `<div class="section-h"><h3>Вы смотрели</h3></div><div class="hscroll">${S.recent.slice(0,4).map(id=>byId(id)).filter(p=>p && !p.hidden).map(p=>card(p)).join('')}</div>` : ''}
+      <footer class="store-footer"><div class="footer-brand">${I.leaf} ${esc(CONFIG.storeName)}</div><p>Демонстрационный каталог техники.<br>Покупки и обращения не отправляются.</p><a href="admin.html">Управление каталогом ${I.chev}</a><span>Сделано для Telegram</span></footer>`;
   },
 
   cat(r) {
     const c = catById(r.id);
-    r.f = r.f || 'all';
-    r.s = r.s || 'pop';
-    let list = PRODUCTS.filter(p => p.cat === c.id);
-    if (r.f === 'stock') list = list.filter(inStock);
-    if (r.f === 'sale') list = list.filter(p => p.old);
-    if (r.s === 'asc') list = [...list].sort((a, b) => a.opt.items[0].p - b.opt.items[0].p);
-    if (r.s === 'desc') list = [...list].sort((a, b) => b.opt.items[0].p - a.opt.items[0].p);
-    const chip = (k, v, t) => `<button class="chip ${r[k] === v ? 'on' : ''}" data-act="filter" data-k="${k}" data-v="${v}">${t}</button>`;
-    return `${topbar(c.name)}
-      <h1 class="page-title">${esc(c.name)}</h1>
-      <p class="page-sub">${list.length} ${plural(list.length, 'модель', 'модели', 'моделей')}</p>
-      <div class="chips">
-        ${chip('f', 'all', 'Все')}${chip('f', 'stock', 'В наличии')}${chip('f', 'sale', 'Со скидкой')}
-        ${chip('s', 'pop', 'Популярные')}<button class="chip arrow ${r.s !== 'pop' ? 'on' : ''}" data-act="price-sort">Цена${r.s === 'desc' ? I.down : I.up}</button>
-      </div>
-      <div class="grid">${list.map(card).join('') || '<p class="hint">Ничего не нашлось</p>'}</div>`;
+    r.filters = r.filters || {cat:r.id};
+    return `${topbar(c.name)}<div class="catalog-heading"><span class="eyebrow">Коллекция Orchard</span><h1>${esc(c.name)}</h1><p>Выберите то, что подходит именно вам.</p></div>${filterControls(r.filters, true)}<div id="results">${catalogResults(r.filters)}</div>`;
   },
 
   product(r) {
     const p = byId(r.id);
-    if (r.ci == null) { r.ci = firstAvailable(p); r.oi = 0; r.si = 0; }
+    if (r.ci == null) r.ci = firstAvailable(p);
+    r.ci = Math.max(0, Math.min(r.ci, p.colors.length-1));
+    r.oi = Math.max(0, Math.min(r.oi || 0, p.opt.items.length-1));
+    r.si = p.sim ? Math.min(r.si || 0, 1) : 0;
     const col = p.colors[r.ci];
     const price = priceOf(p, r.oi, r.si);
     const st = stockInfo(col.q);
@@ -213,7 +208,8 @@ const VIEWS = {
          <div class="row">${I.pin}<div class="t">Самовывоз сегодня<small>${esc(CONFIG.address)}</small></div></div>`
       : `<div class="row">${I.truck}<div class="t">Привезём под заказ за 3–5 дней<small>Предоплата не нужна</small></div></div>`;
 
-    return `${topbar('')}
+    return `${topbar(catById(p.cat).name)}
+      <div class="product-toolbar"><button class="chip ${S.favorites.includes(p.id) ? 'on' : ''}" data-act="favorite" data-id="${p.id}" aria-pressed="${S.favorites.includes(p.id)}">${I.heart} Избранное</button><button class="chip ${S.compare.includes(p.id) ? 'on' : ''}" data-act="compare-toggle" data-id="${p.id}" aria-pressed="${S.compare.includes(p.id)}">${I.compare} Сравнить</button>${S.compare.length ? '<button class="text-button" data-act="compare-open">К сравнению →</button>' : ''}</div>
       <div class="gallery-wrap">
         ${badge}
         <div class="gallery" id="gallery">${slides.map(s => `<div class="g">${s}</div>`).join('')}</div>
@@ -239,8 +235,21 @@ const VIEWS = {
   },
 
   search() {
-    return `<div class="searchbox"><label>${I.search}<input id="q" type="search" placeholder="Поиск по магазину" value="${esc(S.q)}" autocomplete="off"></label></div>
-      <div id="results">${searchResults()}</div>`;
+    return `<div class="catalog-heading"><span class="eyebrow">Найдите своё</span><h1>Каталог</h1></div><div class="searchbox"><label>${I.search}<input id="q" type="search" placeholder="Модель, бренд или память" aria-label="Поиск по магазину" value="${esc(S.q)}" autocomplete="off"><button data-act="clear-search" aria-label="Очистить поиск">×</button></label></div>${filterControls(S.filters)}<div id="results">${catalogResults({...S.filters,q:S.q})}</div>`;
+  },
+
+  saved() {
+    const list = S.favorites.map(byId).filter(p=>p && !p.hidden);
+    return `<div class="catalog-heading"><span class="eyebrow">Ваша коллекция</span><h1>Избранное</h1><p>Сохраните интересное, чтобы вернуться позже.</p></div>${list.length ? `<div class="grid">${list.map(p=>card(p)).join('')}</div>` : `<div class="empty"><div class="big">${I.heart}</div><h2>То, что вам нравится</h2><p>Нажмите на сердечко у модели — и она будет здесь.</p><button class="btn" data-act="tab" data-id="search">В каталог</button></div>`}${S.recent.length ? `<div class="section-h"><h3>Недавно смотрели</h3></div><div class="grid">${S.recent.map(byId).filter(p=>p && !p.hidden).map(p=>card(p)).join('')}</div>` : ''}`;
+  },
+
+  compare(r) {
+    const list = S.compare.map(byId).filter(p=>p && !p.hidden);
+    if (!list.length) return `${topbar('Сравнение')}<div class="empty"><div class="big">${I.compare}</div><h2>Сравните перед выбором</h2><p>Добавьте до трёх моделей одной категории.</p><button class="btn" data-act="tab" data-id="search">Выбрать модели</button></div>`;
+    const keys = [...new Set(list.flatMap(p=>p.specs.map(row=>row[0])))];
+    const rows = [['Память / версия',list.map(p=>p.opt.items.map(o=>o.t).join(', '))],['Наличие',list.map(p=>inStock(p) ? 'В наличии':'Под заказ')],...keys.map(k=>[k,list.map(p=>(p.specs.find(row=>row[0]===k)||[])[1] || '—')])];
+    const shown = r.different ? rows.filter(([,values])=>new Set(values).size>1) : rows;
+    return `${topbar('Сравнение')}<div class="catalog-heading"><span class="eyebrow">Выбирайте осознанно</span><h1>Детали решают</h1><p>Цены указаны за начальную комплектацию.</p></div><div class="compare-options"><label><input type="checkbox" id="different" ${r.different ? 'checked':''}> Только различия</label><button class="text-button" data-act="compare-clear">Очистить</button></div><div class="comparison-scroll" tabindex="0" aria-label="Таблица сравнения"><table class="comparison"><thead><tr><th scope="col">${esc(catById(list[0].cat).name)}<small>До 3 моделей</small></th>${list.map(p=>`<th scope="col"><button class="compare-remove" data-act="compare-toggle" data-id="${p.id}" aria-label="Убрать из сравнения ${esc(p.name)}">×</button><button class="compare-product" data-act="open" data-id="${p.id}"><div class="compare-image">${thumb(p,firstAvailable(p))}</div><b>${esc(p.name)}</b><span>от ${rub(p.opt.items[0].p)}</span></button></th>`).join('')}</tr></thead><tbody>${shown.map(([k,values])=>`<tr class="${new Set(values).size>1 ? 'diff-row':''}"><th scope="row">${esc(k)}</th>${values.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${list.length===1 ? '<p class="hint">Добавьте ещё одну модель этой категории для сравнения.</p>' : !shown.length ? '<p class="hint">По указанным характеристикам различий нет.</p>' : ''}<div class="wrap"><button class="btn block ghost" data-act="cat" data-id="${list[0].cat}">Добавить модель</button></div>`;
   },
 
   cart() {
@@ -277,7 +286,7 @@ const VIEWS = {
     const total = cartTotal();
     const seg = (key, labels) => `<div class="seg3">${labels.map((t, i) => `<button class="${f[key] === i ? 'on' : ''}" data-act="form-seg" data-k="${key}" data-i="${i}">${t}</button>`).join('')}</div>`;
     return `${topbar('Оформление')}
-      <h1 class="page-title">Оформление</h1>
+      <h1 class="page-title">Пример оформления</h1><p class="demo-notice">Это макет. Заказ и данные никуда не отправляются. Используйте вымышленные контакты.</p>
       <div class="info-card">
         <label class="field" id="f-name"><span>Имя</span><input data-f="name" value="${esc(f.name)}" placeholder="Как к вам обращаться" autocomplete="name"></label>
         <label class="field" id="f-phone"><span>Телефон</span><input data-f="phone" value="${esc(f.phone)}" placeholder="+7 900 000-00-00" inputmode="tel" autocomplete="tel"></label>
@@ -290,13 +299,13 @@ const VIEWS = {
       </div>
       <div class="wrap">${seg('pay', ['На месте', 'Онлайн', 'Рассрочка'])}</div>
       <div class="info-card"><label class="field"><span>Комментарий</span><textarea data-f="comment" rows="2" placeholder="Удобное время, вопросы">${esc(f.comment)}</textarea></label></div>
-      <div class="buybar"><div class="sum"><small>К оплате</small><b>${rub(total + (total >= 30000 || f.delivery === 0 ? 0 : 500))}</b></div><button class="btn" data-act="submit">Подтвердить заказ</button></div>`;
+      <div class="buybar"><div class="sum"><small>К оплате</small><b>${rub(total + (total >= 30000 || f.delivery === 0 ? 0 : 500))}</b></div><button class="btn" data-act="submit">Показать результат</button></div>`;
   },
 
   done(r) {
     return `<div class="done"><div class="check">${I.check}</div>
-        <h1>Заказ №${r.no} оформлен</h1>
-        <p>Спасибо${S.form.name ? ', ' + esc(S.form.name) : ''}! Менеджер свяжется с вами в течение 15 минут, чтобы подтвердить детали.</p>
+        <h1>Демо-заказ №${r.no}</h1>
+        <p>Спасибо${S.form.name ? ', ' + esc(S.form.name) : ''}! Это пример экрана подтверждения. Заказ не отправлен, списаний нет.</p>
       </div>
       <div class="info-card" style="padding:10px 16px">
         <div class="sumrow"><span>Товаров</span><span>${r.count}</span></div>
@@ -315,7 +324,7 @@ const VIEWS = {
     }
     return `<div class="chat-page">
       <div class="chat-head"><div class="ava">${esc(CONFIG.storeName[0])}</div>
-        <div><b>Поддержка ${esc(CONFIG.storeName)}</b><small>● онлайн · отвечаем за 5 минут</small></div>
+        <div><b>Поддержка ${esc(CONFIG.storeName)}</b><small>Демо-помощник · готовые ответы</small></div>
         <button class="round-btn" data-act="manager" aria-label="Написать менеджеру" style="color:var(--accent)">${I.tg}</button>
       </div>
       <div class="msgs" id="msgs">${S.chat.map(msgHtml).join('')}</div>
@@ -334,21 +343,34 @@ const msgHtml = m => m.typing
   ? '<div class="msg bot typing"><i></i><i></i><i></i></div>'
   : `<div class="msg ${m.me ? 'me' : 'bot'}">${esc(m.t)}<time>${m.at}</time></div>`;
 
-function searchResults() {
-  const q = S.q.trim().toLowerCase();
-  if (!q) {
-    const pop = ['iPhone 18 Pro', 'AirPods', 'MacBook', 'PlayStation', 'Dyson', 'Galaxy'];
-    return `<p class="hint">Популярные запросы</p><div class="chips" style="flex-wrap:wrap">${pop.map(t => `<button class="chip" data-act="q" data-v="${t}">${t}</button>`).join('')}</div>
-      <div class="section-h" style="padding-top:12px"><h3>Категории</h3></div>
-      <div class="info-card">${CATEGORIES.map(c => `<button class="row link-row" data-act="cat" data-id="${c.id}"><div class="t">${esc(c.name)}<small>${PRODUCTS.filter(p => p.cat === c.id).length} моделей</small></div>${I.chev}</button>`).join('')}</div>`;
-  }
-  const words = q.split(/\s+/);
-  const list = PRODUCTS.filter(p => {
-    const hay = (p.name + ' ' + p.sub + ' ' + catById(p.cat).name + ' ' + p.colors.map(c => c.n).join(' ')).toLowerCase();
-    return words.every(w => hay.includes(w));
-  });
-  if (!list.length) return `<div class="empty"><div class="big">${I.search}</div><h2>Ничего не нашли</h2><p>Попробуйте другой запрос или спросите в поддержке — привезём под заказ.</p></div>`;
-  return `<p class="hint">Найдено: ${list.length}</p><div class="grid">${list.map(card).join('')}</div>`;
+function filterControls(f, categoryOnly = false) {
+  const options = (items, value) => items.map(([v,t])=>`<option value="${esc(v)}" ${String(value||'')===String(v) ? 'selected':''}>${esc(t)}</option>`).join('');
+  const models = categoryOnly ? visibleProducts().filter(p=>p.cat===f.cat) : visibleProducts();
+  const memories = [...new Set(models.flatMap(p=>p.opt.items.map(o=>o.t)).filter(t=>/ГБ|ТБ/i.test(t)))];
+  const count = Object.entries(f).filter(([k,v])=>v && (!categoryOnly || k!=='cat') && k!=='open').length;
+  return `<details class="filters" ${f.open ? 'open':''}><summary>${I.swap}<span>Фильтры${count ? ` · ${count}`:''}</span><span class="filter-summary">Под ваш запрос</span>${I.chev}</summary><form id="catalog-filter"><div class="filter-fields">
+    ${categoryOnly ? `<input type="hidden" name="cat" value="${esc(f.cat)}">` : `<label>Категория<select name="cat">${options([['','Вся техника'],...CATEGORIES.map(c=>[c.id,c.name])],f.cat)}</select></label>`}
+    <label>Память<select name="memory">${options([['','Любая'],...memories.map(t=>[t,t])],f.memory)}</select></label>
+    <label>Цена от, ₽<input name="min" type="number" min="0" max="100000000" inputmode="numeric" value="${esc(f.min||'')}" placeholder="0"></label>
+    <label>Цена до, ₽<input name="max" type="number" min="0" max="100000000" inputmode="numeric" value="${esc(f.max||'')}" placeholder="Без ограничений"></label>
+    <label>SIM<select name="sim">${options([['','Любая'],['esim','eSIM'],['physical','nano-SIM + eSIM']],f.sim)}</select></label>
+    <label>Порядок<select name="sort">${options([['','Рекомендуем'],['asc','Сначала дешевле'],['desc','Сначала дороже']],f.sort)}</select></label>
+    </div><div class="filter-checks"><label><input name="stock" type="checkbox" ${f.stock ? 'checked':''}> В наличии</label><label><input name="sale" type="checkbox" ${f.sale ? 'checked':''}> Со скидкой</label><button type="button" class="text-button" data-act="reset-filters">Сбросить</button></div><button class="btn block filter-apply" type="submit">Показать модели</button></form></details>`;
+}
+function catalogResults(f) {
+  const list = Catalog.query(PRODUCTS,f);
+  const conflict = f.min && f.max && Number(f.min)>Number(f.max);
+  return `<div class="results-head" aria-live="polite"><span>${list.length} ${plural(list.length,'модель','модели','моделей')}</span><span>В коллекции Orchard</span></div>${list.length ? `<div class="grid">${list.map(p=>card(p,f)).join('')}</div>` : `<div class="empty"><div class="big">${I.search}</div><h2>${conflict ? 'Проверьте диапазон цены' : 'Пока ничего не нашлось'}</h2><p>${conflict ? 'Цена «от» должна быть меньше цены «до».' : 'Попробуйте другой запрос или уберите часть фильтров.'}</p><button class="btn ghost" data-act="reset-filters">Сбросить фильтры</button></div>`}`;
+}
+function currentFilters() { return cur().v==='cat' ? cur().filters : S.filters; }
+function searchResults() { return catalogResults({...S.filters,q:S.q}); }
+function renderCompareTray() {
+  let tray = $('#compare-tray');
+  if (!tray) { tray=document.createElement('div'); tray.id='compare-tray'; document.body.appendChild(tray); }
+  const visible = S.compare.length>0 && !['product','checkout','compare'].includes(cur().v);
+  tray.hidden=!visible;
+  document.body.classList.toggle('has-compare',visible);
+  tray.innerHTML=visible ? `<div><b>Сравнение</b><small>${S.compare.length} из 3 моделей · ${esc(catById(byId(S.compare[0]).cat).name)}</small></div><button class="btn" data-act="compare-open">Сравнить ${S.compare.length}</button><button class="tray-clear" data-act="compare-clear" aria-label="Очистить сравнение">×</button>` : '';
 }
 
 // ───── отрисовка ─────
@@ -362,7 +384,8 @@ function render(animate) {
   if (animate) { view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); }
   renderBottom(r);
   renderTabbar(r);
-  if (tg && tg.BackButton) S.stack.length > 1 ? tg.BackButton.show() : tg.BackButton.hide();
+  document.documentElement.classList.toggle('tg-native-back', TelegramBridge.back(S.stack.length > 1));
+  renderCompareTray();
   bindView(r);
 }
 
@@ -388,7 +411,7 @@ function renderTabbar(r) {
   const bar = $('#tabbar');
   bar.classList.toggle('hidden', NO_TABBAR.includes(r.v));
   const n = cartCount();
-  const tabs = [['home', 'Магазин', I.store], ['search', 'Поиск', I.search], ['cart', 'Корзина', I.bag], ['support', 'Поддержка', I.chat]];
+  const tabs = [['home', 'Магазин', I.store], ['search', 'Поиск', I.search], ['saved', 'Избранное', I.heart], ['cart', 'Корзина', I.bag], ['support', 'Поддержка', I.chat]];
   bar.innerHTML = tabs.map(([id, t, ic]) => `<button class="${S.tab === id ? 'on' : ''}" data-act="tab" data-id="${id}">${ic}${t}${id === 'cart' && n ? `<span class="cnt">${n}</span>` : ''}</button>`).join('');
 }
 
@@ -407,8 +430,24 @@ function bindView(r) {
   if (r.v === 'search') {
     const q = $('#q');
     q.addEventListener('input', () => { S.q = q.value; $('#results').innerHTML = searchResults(); });
-    if (!S.q) setTimeout(() => q.focus(), 300);
+    // Keep the keyboard closed until the visitor taps search.
   }
+  const filterForm = $('#catalog-filter');
+  if (filterForm) {
+    const update = (close) => {
+      const f = Object.fromEntries(new FormData(filterForm));
+      f.stock = filterForm.elements.stock.checked;
+      f.sale = filterForm.elements.sale.checked;
+      f.open = !close;
+      if (r.v === 'cat') r.filters = f; else S.filters = f;
+      if(close) rerender();
+      else $('#results').innerHTML = catalogResults({...f,q:r.v==='search' ? S.q : ''});
+    };
+    filterForm.addEventListener('submit', e=>{e.preventDefault(); update(true);});
+    filterForm.addEventListener('change', ()=>update(false));
+    filterForm.closest('details').addEventListener('toggle', e=>{currentFilters().open=e.target.open;});
+  }
+  if (r.v === 'compare' && $('#different')) $('#different').addEventListener('change', e=>{r.different=e.target.checked;rerender();});
   if (r.v === 'checkout') {
     document.querySelectorAll('[data-f]').forEach(inp => inp.addEventListener('input', () => {
       S.form[inp.dataset.f] = inp.value;
@@ -442,7 +481,7 @@ function addToCart(r) {
   const p = byId(r.id);
   const same = S.cart.find(i => i.pid === p.id && i.ci === r.ci && i.oi === r.oi && i.si === r.si);
   if (same) same.qty++;
-  else S.cart.push({ pid: p.id, ci: r.ci, oi: r.oi, si: r.si, qty: 1 });
+  else S.cart.push({ pid: p.id, ci: r.ci, oi: r.oi, si: r.si, qty: 1, variant: {color:p.colors[r.ci].n,option:p.opt.items[r.oi].t} });
   saveCart();
   haptic.ok();
   toast('Добавлено в корзину');
@@ -483,7 +522,7 @@ function botReply(text) {
   for (const [re, i] of rules) if (re.test(t)) return FAQ[i].a;
   if (/налич|есть ли|остал/.test(t)) return 'Наличие видно прямо в карточке товара. Если нужного цвета нет — привезём под заказ за 3–5 дней без предоплаты.';
   if (/скидк|дешевл|торг/.test(t)) return 'При оплате наличными или переводом — дополнительная скидка 2%. Также действует trade-in.';
-  return 'Спасибо за вопрос! Передал его менеджеру — он ответит здесь в течение 5 минут. Если срочно — нажмите кнопку Telegram вверху.';
+  return 'Это демонстрационный помощник. Я могу показать ответы о доставке, гарантии и выборе техники. Сообщения менеджеру здесь не отправляются.';
 }
 
 function say(text, answer) {
@@ -514,11 +553,25 @@ document.addEventListener('click', e => {
   switch (act) {
     case 'open': {
       haptic.tap();
-      const route = { v: 'product', id: el.dataset.id };
-      if (el.dataset.ci) Object.assign(route, { ci: +el.dataset.ci, oi: 0, si: 0 });
+      const route = { v: 'product', id: el.dataset.id, oi: +(el.dataset.oi || 0), si: +(el.dataset.si || 0) };
+      if (el.dataset.ci) Object.assign(route, { ci: +el.dataset.ci });
       push(route);
       break;
     }
+    case 'favorite': {
+      const id=el.dataset.id;
+      S.favorites=S.favorites.includes(id) ? S.favorites.filter(x=>x!==id) : [...S.favorites,id];
+      store.set('orchard.favorites',S.favorites); haptic.select(); rerender(); break;
+    }
+    case 'compare-toggle': {
+      const result=Catalog.toggleCompare(S.compare,el.dataset.id,PRODUCTS);
+      if(result.error) {toast(result.error==='limit' ? 'Можно сравнить до 3 моделей' : 'Выберите модели одной категории'); break;}
+      S.compare=result.ids;store.set('orchard.compare',S.compare);haptic.select();rerender();break;
+    }
+    case 'compare-open': push({v:'compare'});break;
+    case 'compare-clear': S.compare=[];store.set('orchard.compare',[]);rerender();break;
+    case 'reset-filters': if(r.v==='cat') r.filters={cat:r.id}; else {S.filters={};S.q='';} rerender();break;
+    case 'clear-search': S.q='';$('#q').value='';$('#results').innerHTML=searchResults();$('#q').focus();break;
     case 'cat': haptic.tap(); push({ v: 'cat', id: el.dataset.id }); break;
     case 'tab': haptic.select(); switchTab(el.dataset.id); break;
     case 'back': back(); break;
@@ -562,23 +615,37 @@ document.addEventListener('click', e => {
 function applyTheme() {
   const dark = inTG ? tg.colorScheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  if (inTG) {
-    const bg = dark ? '#000000' : '#f5f5f7';
-    try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); tg.setBottomBarColor && tg.setBottomBarColor(bg); } catch (e) { /* старые клиенты */ }
-  }
+  TelegramBridge.colors(dark);
 }
 
 if (inTG) {
   document.documentElement.classList.add('tg');
-  tg.ready();
-  tg.expand();
-  if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
-  tg.BackButton.onClick(back);
-  tg.onEvent('themeChanged', applyTheme);
   const u = tg.initDataUnsafe && tg.initDataUnsafe.user;
   if (u && !S.form.name) S.form.name = u.first_name || '';
-} else {
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 }
+TelegramBridge.init(back, applyTheme);
+// If the SDK fails or is too old, the in-page back control stays usable.
+// render() hides the in-page back control only after a successful native call.
+// Remote device photos may disappear; preserve a useful catalog with existing vector art.
+document.addEventListener('error', e => {
+  const img=e.target;
+  if (!img.dataset || !img.dataset.fallback) return;
+  const p=byId(img.dataset.fallback);
+  if (!p) return;
+  const template=document.createElement('template');
+  template.innerHTML=Art.render(p.art,p.colors[+img.dataset.ci || 0].c,0);
+  img.replaceWith(template.content.firstElementChild);
+}, true);
+function refreshCatalog() {
+  loadCatalog();
+  S.cart=Catalog.cleanCart(S.cart,PRODUCTS);saveCart();
+  for(const key of ['favorites','recent','compare']) S[key]=S[key].filter(id=>visibleProducts().some(p=>p.id===id));
+  S.compare=Catalog.cleanCompare(S.compare, PRODUCTS);
+  S.stack=S.stack.filter(r=>r.v!=='product' || visibleProducts().some(p=>p.id===r.id));
+  if(!S.stack.length) {S.tab='home';S.stack=[{v:'home'}];}
+  render(false);
+}
+window.addEventListener('pageshow', e=>{if(e.persisted) refreshCatalog();});
+window.addEventListener('storage', e=>{if(e.key===Catalog.KEY || e.key===null) refreshCatalog();});
 applyTheme();
 render(false);
