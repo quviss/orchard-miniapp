@@ -88,3 +88,10 @@ test('mixed-category saved comparisons are repaired before toggling',()=>{
   const result=C.toggleCompare(['iphone-18-pro','macbook-air-13'],'iphone-17',products);
   assert.deepEqual(result.ids,['iphone-18-pro','iphone-17']);
 });
+test('a failed product photo uses another original angle, never generated artwork',()=>{
+  assert.equal(typeof C.nextPhoto,'function');
+  const urls=['https://example.com/original.jpg','img/closeup/original.jpg'];
+  assert.equal(C.nextPhoto(urls,['https://example.com/original.jpg']),'img/closeup/original.jpg');
+  assert.equal(C.nextPhoto(urls,urls),null);
+  assert.deepEqual(urls,['https://example.com/original.jpg','img/closeup/original.jpg']);
+});

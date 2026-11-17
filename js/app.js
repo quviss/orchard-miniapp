@@ -34,6 +34,8 @@ const store = {
 };
 
 const I = {
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M20.7 14.2A9 9 0 0 1 9.8 3.3 9 9 0 1 0 20.7 14.2Z"/></svg>',
   heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg>',
   compare: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20V7M2 20h20"/></svg>',
   leaf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M19 3C8 2 2 8 5 15s15 5 14-12Z"/><path d="m4 21 11-12"/></svg>',
@@ -125,14 +127,21 @@ function rerender() {
 }
 
 // ───── компоненты ─────
+function themeButton() {
+  const dark=TelegramBridge.isDark();
+  return `<button class="theme-toggle" data-act="theme-toggle" aria-label="Включить ${dark ? 'светлую' : 'тёмную'} тему" title="Включить ${dark ? 'светлую' : 'тёмную'} тему">${dark ? I.sun : I.moon}</button>`;
+}
 function topbar(title) {
-  return `<div class="topbar"><button class="backbtn" data-act="back">${I.back}Назад</button><div class="title">${esc(title)}</div><div class="spacer"></div></div>`;
+  return `<div class="topbar"><button class="backbtn" data-act="back">${I.back}Назад</button><div class="title">${esc(title)}</div><div class="spacer">${themeButton()}</div></div>`;
 }
 
 function card(p, filters = {}) {
   if (!filters || typeof filters !== 'object') filters = {};
   const offer = Catalog.offers(p, filters).sort((a,b) => a.price-b.price)[0] || {price:p.opt.items[0].p,oi:0,si:0};
   const base = offer.price;
+  const ci=firstAvailable(p);
+  const inCart=S.cart.some(i=>i.pid===p.id && i.ci===ci && i.oi===offer.oi && i.si===offer.si);
+  const configuration=[p.opt.items[offer.oi].t,p.colors.length>1 ? p.colors[ci].n : '',p.sim ? SIM[offer.si].t : ''].filter(Boolean).join(' · ');
   const st = inStock(p) ? '<div class="st ok">В наличии</div>' : '<div class="st warn">Под заказ</div>';
   const badge = p.old ? `<span class="badge sale">−${Math.round(p.old * 100)}%</span>` : p.isNew ? '<span class="badge">Новинка</span>' : '';
   const sw = p.colors.length > 1 ? p.colors.slice(0, 6).map(c => `<i style="background:${c.c}"></i>`).join('') : '';
@@ -142,8 +151,9 @@ function card(p, filters = {}) {
       <div class="nm">${esc(p.name)}</div><div class="card-sub">${esc(p.sub)}</div>
       <div class="pr">от ${rub(base)}</div>${p.old ? `<s class="old-price">${rub(oldPrice(base, p.old))}</s>` : ''}${st}
     </button>
-    <button class="favorite-btn ${S.favorites.includes(p.id) ? 'selected' : ''}" data-act="favorite" data-id="${p.id}" aria-label="${S.favorites.includes(p.id) ? 'Убрать из избранного' : 'В избранное'}: ${esc(p.name)}" aria-pressed="${S.favorites.includes(p.id)}">${I.heart}</button>
-    <button class="compare-btn ${S.compare.includes(p.id) ? 'selected' : ''}" data-act="compare-toggle" data-id="${p.id}" aria-pressed="${S.compare.includes(p.id)}">${I.compare}${S.compare.includes(p.id) ? 'В сравнении' : 'Сравнить'}</button>
+    <div class="card-actions"><button class="favorite-btn ${S.favorites.includes(p.id) ? 'selected' : ''}" data-act="favorite" data-id="${p.id}" aria-label="${S.favorites.includes(p.id) ? 'Убрать из избранного' : 'В избранное'}: ${esc(p.name)}" aria-pressed="${S.favorites.includes(p.id)}">${I.heart}</button>
+    <button class="compare-icon ${S.compare.includes(p.id) ? 'selected' : ''}" data-act="compare-toggle" data-id="${p.id}" aria-label="${S.compare.includes(p.id) ? 'Убрать из сравнения' : 'Сравнить'}: ${esc(p.name)}" title="Сравнить" aria-pressed="${S.compare.includes(p.id)}">${I.compare}</button></div>
+    <div class="card-purchase"><small>${esc(configuration)}</small><button class="card-add ${inCart ? 'in-cart' : ''}" data-act="${inCart ? 'tab' : 'quick-add'}" data-id="${inCart ? 'cart' : p.id}" data-ci="${ci}" data-oi="${offer.oi}" data-si="${offer.si}">${inCart ? I.check+'В корзине' : I.bag+'В корзину'}</button></div>
   </article>`;
 }
 const firstAvailable = p => Math.max(0, p.colors.findIndex(c => c.q > 0));
@@ -166,15 +176,15 @@ const VIEWS = {
     const news = visibleProducts().filter(p => p.isNew && !picks.includes(p)).slice(0,4);
     return `<header class="home-head">
       <div class="brand-lockup"><div class="brand-mark">${I.leaf}</div><div><h1>${esc(CONFIG.storeName)}</h1><div class="brand-caption">Техника для вашего ритма</div></div></div>
-      <span class="demo-tag">Демо</span></header>
+      ${themeButton()}</header>
       <button class="home-search" data-act="tab" data-id="search">${I.search}<span>Какую технику ищем?</span><span class="search-hint">Найти</span></button>
       ${catalogError ? '<p class="hint storage-warning">Сохранённый каталог не прочитан. Показана исходная версия.</p>' : ''}
       ${featured ? `<section class="feature-card"><div class="feature-copy"><span class="eyebrow">В центре внимания</span><h2>${esc(featured.name)}</h2><p>${esc(featured.sub)}</p><button class="feature-cta" data-act="open" data-id="${featured.id}">Смотреть модель ${I.chev}</button><span class="feature-price">от ${rub(featured.opt.items[0].p)}</span></div><div class="feature-art">${thumb(featured,Math.min(3,featured.colors.length-1))}</div><span class="feature-index">ORCHARD / SELECTED</span></section>` : '<div class="empty"><h2>Новая коллекция скоро</h2><p>Добавьте товары в управление каталогом.</p></div>'}
       <div class="section-h"><h3>Что вам интересно?</h3><span class="section-note">${visibleProducts().length} моделей</span></div><div class="cats">${cats}</div>
       <div class="discovery-banner"><div>${I.compare}<b>Найдите свою модель</b><p>Сравните характеристики и выберите то, что подходит вам.</p></div><button data-act="tab" data-id="search">Подобрать ${I.chev}</button></div>
       ${picks.length ? `<div class="section-h"><div><span class="eyebrow">Выбор Orchard</span><h3>Стоит присмотреться</h3></div><button data-act="tab" data-id="search">Весь каталог ${I.chev}</button></div><div class="grid">${picks.map(p=>card(p)).join('')}</div>` : ''}
-      ${news.length ? `<div class="section-h"><h3>Новые открытия</h3></div><div class="hscroll">${news.map(p=>card(p)).join('')}</div>` : ''}
-      ${S.recent.length ? `<div class="section-h"><h3>Вы смотрели</h3></div><div class="hscroll">${S.recent.slice(0,4).map(id=>byId(id)).filter(p=>p && !p.hidden).map(p=>card(p)).join('')}</div>` : ''}
+      ${news.length ? `<div class="section-h"><h3>Новые открытия</h3></div><div class="grid discovery-grid">${news.map(p=>card(p)).join('')}</div>` : ''}
+      ${S.recent.length ? `<div class="section-h"><h3>Вы смотрели</h3></div><div class="grid discovery-grid">${S.recent.slice(0,4).map(id=>byId(id)).filter(p=>p && !p.hidden).map(p=>card(p)).join('')}</div>` : ''}
       <footer class="store-footer"><div class="footer-brand">${I.leaf} ${esc(CONFIG.storeName)}</div><p>Демонстрационный каталог техники.<br>Покупки и обращения не отправляются.</p><a href="admin.html">Управление каталогом ${I.chev}</a><span>Сделано для Telegram</span></footer>`;
   },
 
@@ -249,7 +259,7 @@ const VIEWS = {
     const keys = [...new Set(list.flatMap(p=>p.specs.map(row=>row[0])))];
     const rows = [['Память / версия',list.map(p=>p.opt.items.map(o=>o.t).join(', '))],['Наличие',list.map(p=>inStock(p) ? 'В наличии':'Под заказ')],...keys.map(k=>[k,list.map(p=>(p.specs.find(row=>row[0]===k)||[])[1] || '—')])];
     const shown = r.different ? rows.filter(([,values])=>new Set(values).size>1) : rows;
-    return `${topbar('Сравнение')}<div class="catalog-heading"><span class="eyebrow">Выбирайте осознанно</span><h1>Детали решают</h1><p>Цены указаны за начальную комплектацию.</p></div><div class="compare-options"><label><input type="checkbox" id="different" ${r.different ? 'checked':''}> Только различия</label><button class="text-button" data-act="compare-clear">Очистить</button></div><div class="comparison-scroll" tabindex="0" aria-label="Таблица сравнения"><table class="comparison"><thead><tr><th scope="col">${esc(catById(list[0].cat).name)}<small>До 3 моделей</small></th>${list.map(p=>`<th scope="col"><button class="compare-remove" data-act="compare-toggle" data-id="${p.id}" aria-label="Убрать из сравнения ${esc(p.name)}">×</button><button class="compare-product" data-act="open" data-id="${p.id}"><div class="compare-image">${thumb(p,firstAvailable(p))}</div><b>${esc(p.name)}</b><span>от ${rub(p.opt.items[0].p)}</span></button></th>`).join('')}</tr></thead><tbody>${shown.map(([k,values])=>`<tr class="${new Set(values).size>1 ? 'diff-row':''}"><th scope="row">${esc(k)}</th>${values.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${list.length===1 ? '<p class="hint">Добавьте ещё одну модель этой категории для сравнения.</p>' : !shown.length ? '<p class="hint">По указанным характеристикам различий нет.</p>' : ''}<div class="wrap"><button class="btn block ghost" data-act="cat" data-id="${list[0].cat}">Добавить модель</button></div>`;
+    return `${topbar('Сравнение')}<div class="catalog-heading"><span class="eyebrow">Выбирайте осознанно</span><h1>Детали решают</h1><p>Цены указаны за начальную комплектацию.</p></div><div class="compare-options"><label><input type="checkbox" id="different" ${r.different ? 'checked':''}> Только различия</label><button class="text-button" data-act="compare-clear">Очистить</button></div><div class="comparison-scroll" aria-label="Таблица сравнения"><table class="comparison"><thead><tr><th scope="col">${esc(catById(list[0].cat).name)}<small>До 3 моделей</small></th>${list.map(p=>`<th scope="col"><button class="compare-remove" data-act="compare-toggle" data-id="${p.id}" aria-label="Убрать из сравнения ${esc(p.name)}">×</button><button class="compare-product" data-act="open" data-id="${p.id}"><div class="compare-image">${thumb(p,firstAvailable(p))}</div><b>${esc(p.name)}</b><span>от ${rub(p.opt.items[0].p)}</span></button></th>`).join('')}</tr></thead><tbody>${shown.map(([k,values])=>`<tr class="${new Set(values).size>1 ? 'diff-row':''}"><th scope="row">${esc(k)}</th>${values.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${list.length===1 ? '<p class="hint">Добавьте ещё одну модель этой категории для сравнения.</p>' : !shown.length ? '<p class="hint">По указанным характеристикам различий нет.</p>' : ''}<div class="wrap"><button class="btn block ghost" data-act="cat" data-id="${list[0].cat}">Добавить модель</button></div>`;
   },
 
   cart() {
@@ -558,6 +568,7 @@ document.addEventListener('click', e => {
       push(route);
       break;
     }
+    case 'theme-toggle': TelegramBridge.setTheme(TelegramBridge.isDark() ? 'light' : 'dark');applyTheme();rerender();break;
     case 'favorite': {
       const id=el.dataset.id;
       S.favorites=S.favorites.includes(id) ? S.favorites.filter(x=>x!==id) : [...S.favorites,id];
@@ -581,6 +592,7 @@ document.addEventListener('click', e => {
     case 'opt': haptic.select(); r.oi = +el.dataset.i; rerender(); break;
     case 'sim': haptic.select(); r.si = +el.dataset.i; rerender(); break;
     case 'add': addToCart(r); break;
+    case 'quick-add': addToCart({id:el.dataset.id,ci:+el.dataset.ci,oi:+el.dataset.oi,si:+el.dataset.si});rerender();break;
     case 'qty': {
       const it = S.cart[+el.dataset.i];
       it.qty += +el.dataset.d;
@@ -613,9 +625,13 @@ document.addEventListener('click', e => {
 
 // ───── тема и Telegram ─────
 function applyTheme() {
-  const dark = inTG ? tg.colorScheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = TelegramBridge.isDark();
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   TelegramBridge.colors(dark);
+  document.querySelectorAll('[data-act="theme-toggle"]').forEach(button=>{
+    const label='Включить '+(dark ? 'светлую' : 'тёмную')+' тему';
+    button.innerHTML=dark ? I.sun : I.moon;button.setAttribute('aria-label',label);button.title=label;
+  });
 }
 
 if (inTG) {
@@ -626,15 +642,23 @@ if (inTG) {
 TelegramBridge.init(back, applyTheme);
 // If the SDK fails or is too old, the in-page back control stays usable.
 // render() hides the in-page back control only after a successful native call.
-// Remote device photos may disappear; preserve a useful catalog with existing vector art.
+// Keep original photographs. A missing angle may use another original photo of the same color.
 document.addEventListener('error', e => {
   const img=e.target;
   if (!img.dataset || !img.dataset.fallback) return;
   const p=byId(img.dataset.fallback);
   if (!p) return;
-  const template=document.createElement('template');
-  template.innerHTML=Art.render(p.art,p.colors[+img.dataset.ci || 0].c,0);
-  img.replaceWith(template.content.firstElementChild);
+  const source=img.getAttribute('src');
+  const attempted=JSON.parse(img.dataset.attempted || '[]');
+  // Retry a transient failure once before trying the other original angle.
+  if(img.dataset.retrySource!==source) {img.dataset.retrySource=source;img.src=source;return;}
+  attempted.push(source);img.dataset.attempted=JSON.stringify(attempted);
+  const col=p.colors[+img.dataset.ci || 0];
+  const next=Catalog.nextPhoto(col.img || p.img, attempted);
+  if(next) {img.classList.toggle('cover',next.includes('_AV2'));img.src=next;return;}
+  const label=document.createElement('span');
+  label.className='photo-unavailable';label.textContent='Фото временно недоступно';
+  img.replaceWith(label);
 }, true);
 function refreshCatalog() {
   loadCatalog();

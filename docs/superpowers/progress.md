@@ -19,3 +19,9 @@ Verification limits: no actual Telegram client session was exercised; SDK integr
 The Context7 CLI could not retrieve docs in the restricted network environment; official Telegram documentation was retrieved through the web connector instead.
 
 No merge, push, deployment or changes to the existing public site performed.
+
+## Follow-up corrections from screen recording and screenshots
+
+User constraints preserved: original photos and product colors unchanged; interface remains monochrome. Replace main Demo badge with a sun/moon theme toggle, persist the explicit override, retain automatic Telegram/system theme until a manual selection. Lower comparison tray is dark with white text in dark mode. Comparison table uses fixed fluid columns, no horizontal scroll; discovery/recent sections use the main equal-width grid. Main product-card action is Add to cart with the exact displayed configuration; comparison is an icon adjacent to the favorite control. Photo network errors retry/try other ORIGINAL angles, never replace real photos with vector renderings. js/photos.js, js/data.js and img/ unchanged against original commit 86f52e3.
+
+Validation: 24 Node tests pass, including manual theme persistence and primary card action. Browser verified 3-model comparison at observed 320px: table width, scroll width and document width all 320px; 2-model comparison at 390px all 390px. New discovery cards are equal-width (134px each at 320px), with matching left/right gutters. Manual light/dark switch and reload persistence verified. Dark comparison tray computed background rgb(28,28,28), text rgb(245,245,245). Original gallery photo preservation checked by source diff.

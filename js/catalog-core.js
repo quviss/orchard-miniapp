@@ -29,6 +29,9 @@
     if(!f.sort || f.sort==='pop') list.sort((a,b)=>Number(!!b.hit)-Number(!!a.hit));
     return list;
   }
+  function nextPhoto(sources, failed) {
+    return [].concat(sources || []).find(src=>!failed.includes(src)) || null;
+  }
   function imageURL(url) {
     return typeof url === 'string' && url.length<=2048 && !/[<>"'\s\\]/.test(url) && (/^https:\/\//i.test(url) || /^img\/[\w/.-]+$/.test(url));
   }
@@ -99,5 +102,5 @@
     if(ids.length && visible.find(p=>p.id===ids[0]).cat!==p.cat) return {ids,error:'category'};
     return {ids:[...ids,id]};
   }
-  return {KEY,normalize,offers,query,imageURL,validate,read,write,cleanCart,cleanCompare,toggleCompare};
+  return {KEY,normalize,offers,query,nextPhoto,imageURL,validate,read,write,cleanCart,cleanCompare,toggleCompare};
 });

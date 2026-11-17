@@ -2,6 +2,9 @@
 (function() {
   const sdk = window.Telegram && window.Telegram.WebApp;
   let backRegistered=false;
+  const THEME_KEY='orchard.theme';
+  let preference='auto';
+  try {const saved=localStorage.getItem(THEME_KEY);if(['light','dark'].includes(saved)) preference=saved;} catch(_) {}
   const active = !!(sdk && sdk.initData);
   function call(target, name, ...args) {
     try { if(target && typeof target[name]==='function') return target[name](...args); } catch (_) { /* older client */ }
@@ -16,6 +19,12 @@
     }
   }
   const api={sdk,active,call,supports,syncInsets,
+    isDark() {return preference==='auto' ? (active ? sdk.colorScheme==='dark' : window.matchMedia('(prefers-color-scheme: dark)').matches) : preference==='dark';},
+    setTheme(mode) {
+      if(!['auto','light','dark'].includes(mode)) return;
+      preference=mode;
+      try {localStorage.setItem(THEME_KEY,mode);} catch(_) { /* Keep the selection for this session. */ }
+    },
     init(onBack,onTheme) {
       if(active) {
         call(sdk,'ready');call(sdk,'expand');

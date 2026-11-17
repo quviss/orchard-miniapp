@@ -10,7 +10,7 @@ let products=loaded.products, selected=null, draft=null, isNew=false, dirty=fals
 function status(text,error=false) { const el=$('#studio-status');el.textContent=text;el.classList.toggle('error',error); }
 if(loaded.error) status('Сохранённый каталог не прочитан. Открыта исходная версия; экспортируйте изменения перед закрытием.',true);
 function theme() {
-  const dark=TelegramBridge.active ? TelegramBridge.sdk.colorScheme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark=TelegramBridge.isDark();
   document.documentElement.dataset.theme=dark?'dark':'light';TelegramBridge.colors(dark);
 }
 TelegramBridge.init(()=>leaveStudio(),theme);TelegramBridge.back(true);theme();
@@ -135,6 +135,9 @@ $('#reset-catalog').addEventListener('click',async()=>{
 document.addEventListener('error',e=>{
   const img=e.target;if(!img.dataset || !img.dataset.fallback)return;
   const p=products.find(p=>p.id===img.dataset.fallback);if(!p)return;
-  const t=document.createElement('template');t.innerHTML=Art.render(p.art,p.colors[0].c,0);img.replaceWith(t.content.firstElementChild);
+  const attempted=JSON.parse(img.dataset.attempted || '[]');attempted.push(img.getAttribute('src'));img.dataset.attempted=JSON.stringify(attempted);
+  const next=Catalog.nextPhoto(p.colors[0].img || p.img,attempted);
+  if(next){img.src=next;return;}
+  const label=document.createElement('span');label.className='photo-unavailable';label.textContent='Фото недоступно';img.replaceWith(label);
 },true);
 renderList();

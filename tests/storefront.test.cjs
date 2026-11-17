@@ -4,17 +4,18 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 function app({sdk,stored={}}={}) {
   const elements=new Map();
+  const handlers={};
   function element(){return {innerHTML:'',hidden:false,dataset:{},classList:{add(){},remove(){},toggle(){}},style:{setProperty(){}},addEventListener(){},children:[]};}
   for(const id of ['view','bottom','tabbar','toast']) elements.set(id,element());
   const values=new Map(Object.entries(stored));
   const ctx=vm.createContext({
-    document:{querySelector:s=>s==='#different' && elements.get('view').innerHTML.includes('id="different"') ? element() : elements.get(s.slice(1))||null,querySelectorAll:()=>[],createElement:()=>element(),body:{classList:{toggle(){}},appendChild:el=>elements.set(el.id,el)},documentElement:{dataset:{},classList:{add(){},toggle(){}},style:{setProperty(){}}},addEventListener(){}},
+    document:{querySelector:s=>s==='#different' && elements.get('view').innerHTML.includes('id="different"') ? element() : elements.get(s.slice(1))||null,querySelectorAll:()=>[],createElement:()=>element(),body:{classList:{toggle(){}},appendChild:el=>elements.set(el.id,el)},documentElement:{dataset:{},classList:{add(){},toggle(){}},style:{setProperty(){}}},addEventListener:(name,fn)=>handlers[name]=fn},
     localStorage:{getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)},
     matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){},scrollTo(){},scrollY:0,setTimeout:()=>0,clearTimeout(){},Telegram:sdk?{WebApp:sdk}:undefined
   });
   vm.runInContext('this.window=this;',ctx);
   for(const path of ['data','photos','art','catalog-core','telegram-bridge','app']) vm.runInContext(fs.readFileSync('js/'+path+'.js','utf8'),ctx,{filename:path+'.js'});
-  return {ctx,elements,run:code=>vm.runInContext(code,ctx)};
+  return {ctx,elements,run:code=>vm.runInContext(code,ctx),click:dataset=>handlers.click({target:{closest:()=>({dataset})}})};
 }
 test('actual storefront starts, selects configurations and navigates with old Telegram',()=>{
   for(const sdk of [undefined,{initData:'demo',version:'6.0'},{initData:'demo',version:'9.0',colorScheme:'dark',isVersionAtLeast:()=>true,BackButton:{show(){throw Error('old')},hide(){},onClick(){}},onEvent(){},ready(){},expand(){}}]) {
@@ -50,4 +51,11 @@ test('saved comparisons discard category mismatches at startup and after admin c
   assert.equal(a.run('S.compare.length'),1);
   a.run("S.compare=['iphone-18-pro','iphone-17'];const edited=JSON.parse(JSON.stringify(PRODUCTS));edited.find(p=>p.id==='iphone-17').cat='samsung';localStorage.setItem(Catalog.KEY,JSON.stringify({version:1,products:edited}));refreshCatalog();");
   assert.equal(a.run('S.compare.length'),1);
+});
+
+test('the primary card action adds the displayed configuration to cart',()=>{
+  const a=app();a.click({act:'quick-add',id:'iphone-18-pro',ci:'0',oi:'1',si:'1'});
+  assert.equal(a.run('S.cart.length'),1);
+  assert.equal(a.run('S.cart[0].oi'),1);assert.equal(a.run('S.cart[0].si'),1);
+  assert.match(a.run("card(byId('iphone-18-pro'),{memory:'512 ГБ',sim:'physical'})"),/В корзине/);
 });

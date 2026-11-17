@@ -26,3 +26,18 @@ test('failed native Back never claims usable navigation',()=>{
   const {api}=bridge({initData:'signed',isVersionAtLeast:()=>true,BackButton:{onClick(){},hide(){},show(){throw Error('unsupported')}}});
   api.init(()=>{},()=>{});assert.equal(api.back(true),false);
 });
+test('manual appearance overrides Telegram and survives bridge reload',()=>{
+  const saved=new Map();
+  const storage={getItem:k=>saved.get(k)||null,setItem:(k,v)=>saved.set(k,v)};
+  function load(){
+    const ctx=vm.createContext({window:{Telegram:{WebApp:{initData:'signed',colorScheme:'dark'}},matchMedia:()=>({matches:false})},localStorage:storage,document:{documentElement:{style:{setProperty(){}}}},module:{exports:{}}});
+    vm.runInContext(fs.readFileSync('js/telegram-bridge.js','utf8'),ctx);return ctx.module.exports;
+  }
+  const api=load();assert.equal(typeof api.isDark,'function');assert.equal(api.isDark(),true);
+  api.setTheme('light');assert.equal(api.isDark(),false);assert.equal(load().isDark(),false);
+  api.setTheme('dark');assert.equal(api.isDark(),true);
+  api.setTheme('auto');assert.equal(api.isDark(),true);
+});
+test('theme selection remains usable when storage is unavailable',()=>{
+  const {api}=bridge();assert.equal(typeof api.setTheme,'function');assert.doesNotThrow(()=>api.setTheme('dark'));assert.equal(api.isDark(),true);
+});
