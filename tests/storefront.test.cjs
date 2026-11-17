@@ -14,7 +14,7 @@ function app({sdk,stored={}}={}) {
     matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){},scrollTo(){},scrollY:0,setTimeout:()=>0,clearTimeout(){},Telegram:sdk?{WebApp:sdk}:undefined
   });
   vm.runInContext('this.window=this;',ctx);
-  for(const path of ['data','photos','art','catalog-core','telegram-bridge','app']) vm.runInContext(fs.readFileSync('js/'+path+'.js','utf8'),ctx,{filename:path+'.js'});
+  for(const path of ['data','photos','art','catalog-core','photo-background','telegram-bridge','app']) vm.runInContext(fs.readFileSync('js/'+path+'.js','utf8'),ctx,{filename:path+'.js'});
   return {ctx,elements,run:code=>vm.runInContext(code,ctx),click:dataset=>handlers.click({target:{closest:()=>({dataset})}})};
 }
 test('actual storefront starts, selects configurations and navigates with old Telegram',()=>{

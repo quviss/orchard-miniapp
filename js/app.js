@@ -70,8 +70,8 @@ function stockInfo(q) {
 }
 function imgs(p, ci) {
   const col = p.colors[ci];
-  if (col.img) return [].concat(col.img).map(src => `<img src="${esc(src)}" data-fallback="${p.id}" data-ci="${ci}" alt="${esc(p.name)}"${src.includes('_AV2') ? ' class="cover"' : ''} loading="lazy">`);
-  if (p.img) return [].concat(p.img).map(src => `<img src="${esc(src)}" data-fallback="${p.id}" data-ci="${ci}" alt="${esc(p.name)}" loading="lazy">`);
+  if (col.img) return [].concat(col.img).map(src => `<img src="${esc(PhotoBackground.source(src))}" data-original="${esc(src)}" data-fallback="${p.id}" data-ci="${ci}" alt="${esc(p.name)}"${src.includes('_AV2') ? ' class="cover"' : ''} loading="lazy">`);
+  if (p.img) return [].concat(p.img).map(src => `<img src="${esc(PhotoBackground.source(src))}" data-original="${esc(src)}" data-fallback="${p.id}" data-ci="${ci}" alt="${esc(p.name)}" loading="lazy">`);
   const n = Art.views(p.art);
   return Array.from({ length: n }, (_, v) => Art.render(p.art, col.c, v));
 }
@@ -648,14 +648,14 @@ document.addEventListener('error', e => {
   if (!img.dataset || !img.dataset.fallback) return;
   const p=byId(img.dataset.fallback);
   if (!p) return;
-  const source=img.getAttribute('src');
+  const source=img.dataset.original || img.getAttribute('src');
   const attempted=JSON.parse(img.dataset.attempted || '[]');
   // Retry a transient failure once before trying the other original angle.
-  if(img.dataset.retrySource!==source) {img.dataset.retrySource=source;img.src=source;return;}
+  if(img.dataset.retrySource!==source) {img.dataset.retrySource=source;img.src=PhotoBackground.source(source);return;}
   attempted.push(source);img.dataset.attempted=JSON.stringify(attempted);
   const col=p.colors[+img.dataset.ci || 0];
   const next=Catalog.nextPhoto(col.img || p.img, attempted);
-  if(next) {img.classList.toggle('cover',next.includes('_AV2'));img.src=next;return;}
+  if(next) {img.dataset.original=next;delete img.dataset.transparent;img.classList.toggle('cover',next.includes('_AV2'));img.src=PhotoBackground.source(next);return;}
   const label=document.createElement('span');
   label.className='photo-unavailable';label.textContent='Фото временно недоступно';
   img.replaceWith(label);

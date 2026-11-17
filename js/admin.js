@@ -26,7 +26,7 @@ document.querySelectorAll('a[href="index.html"]').forEach(a=>a.addEventListener(
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 function thumb(p) {
   const c=p.colors[0],src=c.img ? [].concat(c.img)[0] : p.img ? [].concat(p.img)[0] : null;
-  return src ? `<img src="${esc(src)}" alt="" data-fallback="${p.id}" loading="lazy">` : Art.render(p.art,c.c,0);
+  return src ? `<img src="${esc(PhotoBackground.source(src))}" data-original="${esc(src)}" alt="" data-fallback="${p.id}" loading="lazy">` : Art.render(p.art,c.c,0);
 }
 function renderList() {
   const q=Catalog.normalize($('#admin-search').value);
@@ -135,9 +135,9 @@ $('#reset-catalog').addEventListener('click',async()=>{
 document.addEventListener('error',e=>{
   const img=e.target;if(!img.dataset || !img.dataset.fallback)return;
   const p=products.find(p=>p.id===img.dataset.fallback);if(!p)return;
-  const attempted=JSON.parse(img.dataset.attempted || '[]');attempted.push(img.getAttribute('src'));img.dataset.attempted=JSON.stringify(attempted);
+  const attempted=JSON.parse(img.dataset.attempted || '[]');attempted.push(img.dataset.original || img.getAttribute('src'));img.dataset.attempted=JSON.stringify(attempted);
   const next=Catalog.nextPhoto(p.colors[0].img || p.img,attempted);
-  if(next){img.src=next;return;}
+  if(next){img.dataset.original=next;delete img.dataset.transparent;img.src=PhotoBackground.source(next);return;}
   const label=document.createElement('span');label.className='photo-unavailable';label.textContent='Фото недоступно';img.replaceWith(label);
 },true);
 renderList();
